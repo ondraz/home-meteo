@@ -3,6 +3,8 @@
 #include <Wire.h>
 #include "Adafruit_NeoPixel.h"
 #include "SparkFun_SCD4x_Arduino_Library.h"
+#include <NTPClient.h>
+#include <WiFiUdp.h>
 
 #include <PM1006.h>
 
@@ -11,23 +13,32 @@
 #define TXD2 17
 static PM1006 pm1006(&Serial2);
 
-const char *ssid = "cassady";
-const char *password = "kralikmausiska";
+const char *ssid = "YOUR_WIFI";
+const char *password = "PASSWORD";
 
-String serverNamePM = "http://dolany-pm.tmep.cz/index.php?";
+// This sends data to tmep.cz service, setup your own :)
+// Endpoint for PM values
+// String serverNamePM = "http://dolany-pm.tmep.cz/index.php?";
+String serverNamePM = "http://";
 String GUID_PM = "pm";
 
-String serverNameCO2 = "http://dolany.tmep.cz/index.php?";
+// This sends data to tmep.cz service, setup your own :)
+// Endpoint for CO2 values
+// String serverNameCO2 = "http://dolany.tmep.cz/index.php?";
+String serverNameCO2 = "http://";
 String GUID_CO2 = "scd41";
 
 SCD4x SCD41;
 
-#define BRIGHTNESS 10
+#define BRIGHTNESS 5
 #define PIN_LED 25
 #define PM_LED 1
 #define TEMP_LED 2
 #define CO2_LED 3
 Adafruit_NeoPixel leds = Adafruit_NeoPixel(3, PIN_LED, NEO_GRB + NEO_KHZ800);
+
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP);
 
 void sendHttpGet(String httpGet)
 {
@@ -92,18 +103,6 @@ void setup()
 
   Serial2.begin(9600, SERIAL_8N1, RXD2, TXD2);
 
-  setColorWS(0, 0, 255, PM_LED);
-  delay(500);
-  setColorWS(0, 0, 0, PM_LED);
-  delay(500);
-  setColorWS(0, 0, 255, PM_LED);
-  delay(500);
-  setColorWS(0, 0, 0, PM_LED);
-  delay(500);
-  setColorWS(0, 0, 255, PM_LED);
-  delay(500);
-  setColorWS(0, 0, 0, PM_LED);
-
   if (SCD41.begin(false, true) == false)
   {
     Serial.println("SCD41 not found.");
@@ -127,17 +126,17 @@ void setup()
   Serial.println();
   Serial.print("Connected with IP: ");
   Serial.println(WiFi.localIP());
+
+  timeClient.begin();
 }
 
 void loop()
 {
-  setColorWS(0, 0, 255, PM_LED);
-  delay(500);
-  setColorWS(0, 0, 0, PM_LED);
-  delay(500);
-  setColorWS(0, 0, 255, PM_LED);
-  delay(500);
-  setColorWS(0, 0, 0, PM_LED);
+  timeClient.update();
+  const int hours = timeClient.getHours();
+  const bool day = hours >= 6 && hours < 20;
+  Serial.print("Hours: ");
+  Serial.println(hours);
 
   while (!SCD41.readMeasurement())
   {
@@ -159,22 +158,24 @@ void loop()
   Serial.println(" ppm");
 
   uint16_t pm2_5;
-  digitalWrite(PIN_FAN, HIGH);
-  Serial.println("Fan ON");
-  delay(30000);
+  if (day) {
+    digitalWrite(PIN_FAN, HIGH);
+    Serial.println("Fan ON");
+    delay(30000);
 
-  while (!pm1006.read_pm25(&pm2_5))
-  {
-    delay(1);
+    while (!pm1006.read_pm25(&pm2_5))
+    {
+      delay(1);
+    }
+
+    delay(100);
+    digitalWrite(PIN_FAN, LOW);
+    Serial.println("Fan OFF");
+
+    Serial.print("PM2.5: ");
+    Serial.print(pm2_5);
+    Serial.println(" ppm");
   }
-
-  delay(100);
-  digitalWrite(PIN_FAN, LOW);
-  Serial.println("Fan OFF");
-
-  Serial.print("PM2.5: ");
-  Serial.print(pm2_5);
-  Serial.println(" ppm");
 
   if (WiFi.status() == WL_CONNECTED)
   {
@@ -183,77 +184,85 @@ void loop()
 
     delay(100);
 
-    String serverPathPM = serverNamePM + "" + GUID_PM + "=" + pm2_5;
-    sendHttpGet(serverPathPM);
+    if (day) {
+      String serverPathPM = serverNamePM + "" + GUID_PM + "=" + pm2_5;
+      sendHttpGet(serverPathPM);
+    }
   }
   else
   {
     Serial.println("Wi-Fi disconnected");
   }
 
-  if (co2 < 1000)
-  {
-    setColorWS(0, 255, 0, CO2_LED);
-  }
+  if (day) {
+    if (co2 < 1000)
+    {
+      setColorWS(0, 255, 0, CO2_LED);
+    }
 
-  if ((co2 >= 1000) && (co2 < 1200))
-  {
-    setColorWS(128, 255, 0, CO2_LED);
-  }
+    if ((co2 >= 1000) && (co2 < 1200))
+    {
+      setColorWS(128, 255, 0, CO2_LED);
+    }
 
-  if ((co2 >= 1200) && (co2 < 1500))
-  {
-    setColorWS(255, 255, 0, CO2_LED);
-  }
+    if ((co2 >= 1200) && (co2 < 1500))
+    {
+      setColorWS(255, 255, 0, CO2_LED);
+    }
 
-  if ((co2 >= 1500) && (co2 < 2000))
-  {
-    setColorWS(255, 128, 0, CO2_LED);
-  }
+    if ((co2 >= 1500) && (co2 < 2000))
+    {
+      setColorWS(255, 128, 0, CO2_LED);
+    }
 
-  if (co2 >= 2000)
-  {
-    setColorWS(255, 0, 0, CO2_LED);
-  }
+    if (co2 >= 2000)
+    {
+      setColorWS(255, 0, 0, CO2_LED);
+    }
 
-  if (temperature < 23.0)
-  {
-    setColorWS(0, 0, 255, TEMP_LED);
-  }
+    if (temperature < 23.0)
+    {
+      setColorWS(0, 0, 255, TEMP_LED);
+    }
 
-  if ((temperature >= 23.0) && (temperature < 28.0))
-  {
-    setColorWS(0, 255, 0, TEMP_LED);
-  }
+    if ((temperature >= 23.0) && (temperature < 28.0))
+    {
+      setColorWS(0, 255, 0, TEMP_LED);
+    }
 
-  if (temperature >= 28.0)
-  {
-    setColorWS(255, 0, 0, TEMP_LED);
-  }
+    if (temperature >= 28.0)
+    {
+      setColorWS(255, 0, 0, TEMP_LED);
+    }
 
-  if (pm2_5 < 30)
-  {
-    setColorWS(0, 255, 0, PM_LED);
-  }
+    if (pm2_5 < 30)
+    {
+      setColorWS(0, 255, 0, PM_LED);
+    }
 
-  if ((pm2_5 >= 30) && (pm2_5 < 40))
-  {
-    setColorWS(128, 255, 0, PM_LED);
-  }
+    if ((pm2_5 >= 30) && (pm2_5 < 40))
+    {
+      setColorWS(128, 255, 0, PM_LED);
+    }
 
-  if ((pm2_5 >= 40) && (pm2_5 < 80))
-  {
-    setColorWS(255, 255, 0, PM_LED);
-  }
+    if ((pm2_5 >= 40) && (pm2_5 < 80))
+    {
+      setColorWS(255, 255, 0, PM_LED);
+    }
 
-  if ((pm2_5 >= 80) && (pm2_5 < 90))
-  {
-    setColorWS(255, 128, 0, PM_LED);
-  }
+    if ((pm2_5 >= 80) && (pm2_5 < 90))
+    {
+      setColorWS(255, 128, 0, PM_LED);
+    }
 
-  if (pm2_5 >= 90)
-  {
-    setColorWS(255, 0, 0, PM_LED);
+    if (pm2_5 >= 90)
+    {
+      setColorWS(255, 0, 0, PM_LED);
+    }
+  } else {
+    setColorWS(0, 0, 0, CO2_LED);
+    setColorWS(0, 0, 0, TEMP_LED);
+    setColorWS(0, 0, 0, PM_LED);
   }
 
   esp_sleep_enable_timer_wakeup(10 * 60 * 1000000);
